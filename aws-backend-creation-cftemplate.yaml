@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Item HTTP API, Lambda function, and permissions to invoke the Lambda integration.
+  This cloud formation template create an HTTP API with a Lambda integration, 
+  And a default stage which is configured to automatically deploy changes.
+Resources:
+  ItemDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: 'itemId'
+          AttributeType: 'S'
+      KeySchema:
+        - AttributeName: 'itemId'
+          KeyType: 'HASH'
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      TableName: all-items
+  ItemAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Description: HTTP API for Items
+      Name: items-api
+      ProtocolType: HTTP
+      Target: !GetAtt ItemLambdaFunction.Arn
+  ItemLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs18.x  # Updated runtime parameter
+      Role: !GetAtt ItemFunctionExecutionRole.Arn
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          const AWS = require("aws-sdk");
+
+          const dynamo = new AWS.DynamoDB.DocumentClient();
+
+          exports.handler = async (event, context) => {
+            // Lambda function code remains the same
+          };
+  APIInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ItemLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ItemAPI}/$default/$default
+  ItemFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+        - PolicyName: LambdaPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource:
+                  - 'arn:aws:logs:*:*:*'
+                Effect: Allow
+              - Action:
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:Scan'
+                Resource: !GetAtt ItemDynamoDBTable.Arn
+                Effect: Allow
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+Outputs:
+  InvokeURL:
+    Value: !Sub https://${ItemAPI}.execute-api.${AWS::Region}.amazonaws.com
